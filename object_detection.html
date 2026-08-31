@@ -57,6 +57,25 @@
 
     let model;
 
+    // 英語から日本語への変換辞書を用意する
+    const labelMap = {
+      'person': '人',
+      'cell phone': 'スマホ',
+      'laptop': 'ノートPC',
+      'mouse': 'マウス',
+      'keyboard': 'キーボード',
+      'cup': 'コップ',
+      'bottle': 'ペットボトル',
+      'chair': '椅子',
+      'book': '本',
+      'cat': '猫',
+      'dog': '犬',
+      'tv': 'テレビ',
+      'remote': 'リモコン',
+      'potted plant': '観葉植物'
+      // 必要に応じて他の物体も追加できます！
+    };
+    
     // 1. スマホのリアカメラを起動する
     async function setupCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -78,38 +97,38 @@
 
     // 2. 毎フレームの物体検知と描画処理
     async function detectFrame() {
-      // 画面サイズに合わせてキャンバスの解像度を調整
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-
-      // 物体検知の実行
+    
       const predictions = await model.detect(video);
-
-      // 前のフレームの描画をクリア
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // 検知結果の描画
+    
       predictions.forEach(prediction => {
         const [x, y, width, height] = prediction.bbox;
-        const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
-
+    
+        // --- ここで日本語ラベルを取得 ---
+        // 辞書にあれば日本語、なければ英語のまま表示する
+        const japaneseLabel = labelMap[prediction.class] || prediction.class;
+        
+        // 表示用テキストの作成（例：スマホ (92%)）
+        const text = `${japaneseLabel} (${Math.round(prediction.score * 100)}%)`;
+    
         // 枠線の描画
         ctx.strokeStyle = '#00FF00';
         ctx.lineWidth = 4;
         ctx.strokeRect(x, y, width, height);
-
+    
         // ラベル背景の描画
         ctx.fillStyle = '#00FF00';
         ctx.font = '18px sans-serif';
         const textWidth = ctx.measureText(text).width;
         ctx.fillRect(x, y > 25 ? y - 25 : y, textWidth + 8, 25);
-
+    
         // ラベル文字の描画
         ctx.fillStyle = '#000000';
         ctx.fillText(text, x + 4, y > 25 ? y - 7 : y + 18);
       });
-
-      // 次のフレームでも再度実行（ループ）
+    
       requestAnimationFrame(detectFrame);
     }
 
