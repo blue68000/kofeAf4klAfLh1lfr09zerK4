@@ -69,12 +69,21 @@
       background-color: #555;
       cursor: not-allowed;
     }
+    #result-message {
+      font-size: 24px;
+      font-weight: bold;
+      color: #00ffcc;
+      margin: 10px 0;
+      min-height: 36px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
 
   <div id="status">システム初期化中...</div>
-
+  <div id="result-message">誰かを待っています...</div>
+  
   <div id="container">
     <video id="webcam" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
@@ -94,7 +103,8 @@
     const statusText = document.getElementById('status');
     const nameInput = document.getElementById('name-input');
     const regBtn = document.getElementById('reg-btn');
-
+    const resultMessage = document.getElementById('result-message');
+    
     let registeredFaces = []; // GASから読み込んだ登録済み顔データ
     let currentUnregisteredDescriptor = null; // 現在検知中の未登録顔の特徴量
 
@@ -158,51 +168,77 @@
 
     // 3. リアルタイム検知＆照合ループ
     async function detectFrame() {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      // 顔を検出して128次元の特徴量（descriptor）を抽出
-      const detections = await faceapi.detectAllFaces(video)
-        .withFaceLandmarks()
-        .withFaceDescriptors();
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      let hasUnregisteredInFrame = false;
-
-      detections.forEach(detection => {
-        const { x, y, width, height } = detection.detection.box;
-        const inputDescriptor = detection.descriptor;
-
-        let bestMatch = { label: "人", distance: 1.0 };
-
-        // 登録済みデータと照合（ユーグリッド距離）
-        registeredFaces.forEach(known => {
-          const distance = faceapi.euclideanDistance(inputDescriptor, known.descriptor);
-          if (distance < 0.5 && distance < bestMatch.distance) { // 閾値0.5以下で一致判定
-            bestMatch = { label: `${known.label}来たやん！`, distance };
+      // videoの解像度が取れていない場合は処理をスキップ
+      if (!video.videoWidth || !video.videoHeight) {
+        requestAnimationFrame(detectFrame);
+        return;
+      }
+    
+      // Canvasサイズをビデオの実サイズに合わせる
+      if (canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+    
+      try {
+        const detections = await faceapi.detectAllFaces(video)
+          .withFaceLandmarks()
+          .withFaceDescriptors();
+    
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+        let hasUnregisteredInFrame = false;
+        let detectedNames = [];
+    
+        detections.forEach(detection => {
+          const { x, y, width, height } = detection.detection.box;
+          const inputDescriptor = detection.descriptor;
+    
+          let bestMatch = { label: "人", distance: 1.0 };
+    
+          // 照合処理
+          registeredFaces.forEach(known => {
+            const distance = faceapi.euclideanDistance(inputDescriptor, known.descriptor);
+            // しきい値0.5以下なら一致と判定
+            if (distance < 0.5 && distance < bestMatch.distance) {
+              bestMatch = { label: known.label, distance };
+            }
+          });
+    
+          if (bestMatch.label === "人") {
+            currentUnregisteredDescriptor = inputDescriptor;
+            hasUnregisteredInFrame = true;
+            detectedNames.push("未登録の人");
+          } else {
+            // 一致した場合
+            detectedNames.push(`${bestMatch.label}来たやん！`);
           }
+    
+          // 枠線の描画（赤：未登録 / 緑：登録済み）
+          ctx.strokeStyle = bestMatch.label === "人" ? "#ff0055" : "#00ffcc";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x, y, width, height);
+    
+          // 枠の上の文字描画
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.font = "bold 22px sans-serif";
+          const displayText = bestMatch.label === "人" ? "人" : `${bestMatch.label}来たやん！`;
+          ctx.fillText(displayText, x, y > 30 ? y - 10 : y + 30);
         });
-
-        // 未登録の顔だった場合、登録用に一時保存
-        if (bestMatch.label === "人") {
-          currentUnregisteredDescriptor = inputDescriptor;
-          hasUnregisteredInFrame = true;
+    
+        // 画面中央の大きなメッセージ枠に文字を表示！
+        if (detectedNames.length > 0) {
+          resultMessage.innerText = detectedNames.join(" / ");
+        } else {
+          resultMessage.innerText = "顔を探しています...";
         }
-
-        // 画面描画
-        ctx.strokeStyle = bestMatch.label === "人" ? "#ff0055" : "#00ffcc";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x, y, width, height);
-
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.font = "bold 18px sans-serif";
-        ctx.fillText(bestMatch.label, x, y > 20 ? y - 8 : y + 20);
-      });
-
-      // 未登録の顔が映っている時だけ登録ボタンを有効化
-      regBtn.disabled = !hasUnregisteredInFrame;
-
+    
+        regBtn.disabled = !hasUnregisteredInFrame;
+    
+      } catch (err) {
+        console.error("detectFrame error:", err);
+      }
+    
       requestAnimationFrame(detectFrame);
     }
 
