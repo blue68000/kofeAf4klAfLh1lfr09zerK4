@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>リアルタイム物体検知</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #121212;
+      color: white;
+      font-family: sans-serif;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      max-width: 640px;
+      height: calc(100vw * 0.75);
+      max-height: 480px;
+      margin-top: 20px;
+    }
+    /* カメラ映像と描画用キャンバスをぴったり重ねる */
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="status">モデルを読み込んでいます...</div>
+  
+  <div id="container">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status');
+
+    let model;
+
+    // 1. スマホのリアカメラを起動する
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { exact: "environment" }, // リアカメラを指定（動作しない場合は "user" または削除）
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    // 2. 毎フレームの物体検知と描画処理
+    async function detectFrame() {
+      // 画面サイズに合わせてキャンバスの解像度を調整
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // 物体検知の実行
+      const predictions = await model.detect(video);
+
+      // 前のフレームの描画をクリア
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 検知結果の描画
+      predictions.forEach(prediction => {
+        const [x, y, width, height] = prediction.bbox;
+        const text = `${prediction.class} (${Math.round(prediction.score * 100)}%)`;
+
+        // 枠線の描画
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(x, y, width, height);
+
+        // ラベル背景の描画
+        ctx.fillStyle = '#00FF00';
+        ctx.font = '18px sans-serif';
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillRect(x, y > 25 ? y - 25 : y, textWidth + 8, 25);
+
+        // ラベル文字の描画
+        ctx.fillStyle = '#000000';
+        ctx.fillText(text, x + 4, y > 25 ? y - 7 : y + 18);
+      });
+
+      // 次のフレームでも再度実行（ループ）
+      requestAnimationFrame(detectFrame);
+    }
+
+    // 3. 全体の初期化処理
+    async function main() {
+      try {
+        await setupCamera();
+        statusText.innerText = 'AIモデルをロード中...';
+        
+        // COCO-SSDモデルの読み込み
+        model = await cocoSsd.load();
+        
+        statusText.innerText = '検知中！カメラをかざしてみてください';
+        detectFrame();
+      } catch (e) {
+        statusText.innerText = 'カメラの起動に失敗しました（HTTPS環境で試してください）';
+        console.error(e);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
