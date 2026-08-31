@@ -98,7 +98,7 @@
     let registeredFaces = []; // GASから読み込んだ登録済み顔データ
     let currentUnregisteredDescriptor = null; // 現在検知中の未登録顔の特徴量
 
-    // GASから登録済み顔データをロード（JSONオブジェクト構造対応版）
+    // GASから登録済み顔データをロード（CORS回避・text/plain版）
     async function loadRegisteredData() {
       statusText.innerText = "スプレッドシートから顔データを読み込み中...";
       try {
@@ -110,15 +110,14 @@
     
         const res = await fetch(GAS_URL, {
           method: "POST",
-          // GASテストコードに合わせて application/json で送信
-          headers: { "Content-Type": "application/json" },
+          // CORSエラーを回避するため text/plain を指定する
+          headers: { "Content-Type": "text/plain" },
           body: JSON.stringify(payload)
         });
     
         const responseObj = await res.json();
         console.log("GASからのレスポンス全体:", responseObj);
     
-        // responseObj.data の中身を取り出す（レスポンスが文字列で来ている可能性も考慮）
         let dataArray = responseObj.data;
         if (typeof dataArray === 'string') {
           dataArray = JSON.parse(dataArray);
@@ -128,7 +127,6 @@
           registeredFaces = dataArray
             .filter(item => item.label && item.value)
             .map(item => {
-              // valueがすでに配列か、文字列（JSON）かで安全に分岐
               let rawVector = item.value;
               if (typeof rawVector === 'string') {
                 rawVector = JSON.parse(rawVector);
@@ -232,7 +230,7 @@
       try {
         await fetch(GAS_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "text/plain" },
           body: JSON.stringify(payload)
         });
 
