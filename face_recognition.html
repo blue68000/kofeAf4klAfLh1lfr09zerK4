@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>顔認識＆GASスプレッドシート連携アプリ</title>
+  <!-- face-api.js の読み込み -->
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #1a1a1a;
+      color: #fff;
+      font-family: sans-serif;
+    }
+    #status {
+      margin-bottom: 10px;
+      font-weight: bold;
+      color: #00ffcc;
+      text-align: center;
+    }
+    #container {
+      position: relative;
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 4/3;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+    #register-panel {
+      margin-top: 15px;
+      background-color: #2a2a2a;
+      padding: 15px;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 610px;
+      display: flex;
+      gap: 10px;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #333;
+      color: white;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #00ffcc;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #555;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="status">システム初期化中...</div>
+
+  <div id="container">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div id="register-panel">
+    <input type="text" id="name-input" placeholder="未登録の顔に登録する名前">
+    <button id="reg-btn" disabled>この顔を登録</button>
+  </div>
+
+  <script>
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxQTIKFDP9vv65GHl6Zjmir23U18Av1hC9JlDqo8xePSHwfvLxMDmHac4cwRYhDo1ae/exec";
+    
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status');
+    const nameInput = document.getElementById('name-input');
+    const regBtn = document.getElementById('reg-btn');
+
+    let registeredFaces = []; // GASから読み込んだ登録済み顔データ
+    let currentUnregisteredDescriptor = null; // 現在検知中の未登録顔の特徴量
+
+    // 1. GASから登録済み顔データをロード
+    async function loadRegisteredData() {
+      statusText.innerText = "スプレッドシートから顔データを読み込み中...";
+      try {
+        const payload = {
+          method: "READ DATAS",
+          sheetName: "顔認識テスト",
+          query: ""
+        };
+
+        const res = await fetch(GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" }, // GASのCORS対策としてtext/plainを使用
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        
+        // GASからのレスポンス構造に合わせてパース
+        if (Array.isArray(data)) {
+          registeredFaces = data.map(item => ({
+            label: item.label,
+            descriptor: new Float32Array(JSON.parse(item.value))
+          }));
+        }
+        statusText.innerText = `準備完了！（登録済み: ${registeredFaces.length}件）`;
+      } catch (e) {
+        console.error(e);
+        statusText.innerText = "GASからのデータ読み込みに失敗しました（初回は空でも動作します）";
+      }
+    }
+
+    // 2. スマホ・PCのカメラ起動
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: 640, height: 480 },
+        audio: false
+      });
+      video.srcObject = stream;
+      return new Promise(resolve => video.onloadedmetadata = () => resolve());
+    }
+
+    // 3. リアルタイム検知＆照合ループ
+    async function detectFrame() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      // 顔を検出して128次元の特徴量（descriptor）を抽出
+      const detections = await faceapi.detectAllFaces(video)
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let hasUnregisteredInFrame = false;
+
+      detections.forEach(detection => {
+        const { x, y, width, height } = detection.detection.box;
+        const inputDescriptor = detection.descriptor;
+
+        let bestMatch = { label: "人", distance: 1.0 };
+
+        // 登録済みデータと照合（ユーグリッド距離）
+        registeredFaces.forEach(known => {
+          const distance = faceapi.euclideanDistance(inputDescriptor, known.descriptor);
+          if (distance < 0.5 && distance < bestMatch.distance) { // 閾値0.5以下で一致判定
+            bestMatch = { label: `${known.label}来たやん！`, distance };
+          }
+        });
+
+        // 未登録の顔だった場合、登録用に一時保存
+        if (bestMatch.label === "人") {
+          currentUnregisteredDescriptor = inputDescriptor;
+          hasUnregisteredInFrame = true;
+        }
+
+        // 画面描画
+        ctx.strokeStyle = bestMatch.label === "人" ? "#ff0055" : "#00ffcc";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, width, height);
+
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = "bold 18px sans-serif";
+        ctx.fillText(bestMatch.label, x, y > 20 ? y - 8 : y + 20);
+      });
+
+      // 未登録の顔が映っている時だけ登録ボタンを有効化
+      regBtn.disabled = !hasUnregisteredInFrame;
+
+      requestAnimationFrame(detectFrame);
+    }
+
+    // 4. 新しい顔の登録処理（GASへPOST）
+    regBtn.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name || !currentUnregisteredDescriptor) {
+        alert("名前を入力し、カメラに未登録の顔を映してください。");
+        return;
+      }
+
+      regBtn.disabled = true;
+      statusText.innerText = `「${name}」をスプレッドシートに保存中...`;
+
+      // 128次元の数値配列を JSON 文字列化
+      const descriptorArray = Array.from(currentUnregisteredDescriptor);
+      
+      const payload = {
+        method: "WRITE SHEET",
+        sheetName: "顔認識テスト",
+        label: name,
+        value: JSON.stringify(descriptorArray)
+      };
+
+      try {
+        await fetch(GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify(payload)
+        });
+
+        // ローカルのデータ配列にも即時追加
+        registeredFaces.push({
+          label: name,
+          descriptor: currentUnregisteredDescriptor
+        });
+
+        statusText.innerText = `「${name}」の登録が完了しました！`;
+        nameInput.value = "";
+      } catch (e) {
+        console.error(e);
+        statusText.innerText = "スプレッドシートへの保存に失敗しました。";
+      }
+    });
+
+    // 5. メイン起動処理
+    async function main() {
+      try {
+        await setupCamera();
+        
+        // 軽量なモデルファイルをCDNからロード
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+        statusText.innerText = '顔認識モデルをロード中...';
+        
+        await Promise.all([
+          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+          faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+        ]);
+
+        await loadRegisteredData();
+        detectFrame();
+      } catch (e) {
+        console.error(e);
+        statusText.innerText = '初期化エラー：カメラやネットワーク環境を確認してください。';
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
