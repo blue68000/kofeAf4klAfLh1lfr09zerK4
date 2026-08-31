@@ -103,7 +103,7 @@ async function detectFrame() {
       registeredFaces.forEach(known => {
         const distance = faceapi.euclideanDistance(inputDescriptor, known.descriptor);
         // しきい値0.5以下なら一致と判定
-        if (distance < 0.5 && distance < bestMatch.distance) {
+        if (distance < 0.3 && distance < bestMatch.distance) {
           bestMatch = { label: known.label, distance };
         }
       });
