@@ -98,33 +98,41 @@
     let registeredFaces = []; // GASから読み込んだ登録済み顔データ
     let currentUnregisteredDescriptor = null; // 現在検知中の未登録顔の特徴量
 
-    // 1. GASから登録済み顔データをロード（データ構造修正版）
+    // GASから登録済み顔データをロード（JSONオブジェクト構造対応版）
     async function loadRegisteredData() {
       statusText.innerText = "スプレッドシートから顔データを読み込み中...";
       try {
         const payload = {
-          method: "READ DATAS",
-          sheetName: "顔認識テスト",
-          query: ""
+          "method": "READ DATAS",
+          "sheetName": "顔認識テスト",
+          "query": ""
         };
     
         const res = await fetch(GAS_URL, {
           method: "POST",
-          headers: { "Content-Type": "text/plain" },
+          // GASテストコードに合わせて application/json で送信
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
     
-        const data = await res.json();
-        console.log("GASからのレスポンス:", data); // デバッグ用
+        const responseObj = await res.json();
+        console.log("GASからのレスポンス全体:", responseObj);
     
-        if (Array.isArray(data)) {
-          registeredFaces = data
-            .filter(item => item.label && item.value) // labelとvalueが存在するものだけ抽出
+        // responseObj.data の中身を取り出す（レスポンスが文字列で来ている可能性も考慮）
+        let dataArray = responseObj.data;
+        if (typeof dataArray === 'string') {
+          dataArray = JSON.parse(dataArray);
+        }
+    
+        if (Array.isArray(dataArray)) {
+          registeredFaces = dataArray
+            .filter(item => item.label && item.value)
             .map(item => {
-              // valueがすでに配列か、文字列かで分岐処理して安全にパース
-              const rawVector = typeof item.value === 'string' 
-                ? JSON.parse(item.value) 
-                : item.value;
+              // valueがすでに配列か、文字列（JSON）かで安全に分岐
+              let rawVector = item.value;
+              if (typeof rawVector === 'string') {
+                rawVector = JSON.parse(rawVector);
+              }
     
               return {
                 label: item.label,
@@ -136,7 +144,7 @@
         statusText.innerText = `準備完了！（登録済み: ${registeredFaces.length}件）`;
       } catch (e) {
         console.error(e);
-        statusText.innerText = "GASからのデータ読み込みに失敗しました";
+        statusText.innerText = "GASからのデータ読み込みに失敗しました（コンソールを確認してください）";
       }
     }
 
