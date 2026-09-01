@@ -86,7 +86,8 @@ async function detectFrame() {
   try {
     const detections = await faceapi.detectAllFaces(video)
       .withFaceLandmarks()
-      .withFaceDescriptors();
+      .withFaceDescriptors()
+      .withFaceExpressions();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -96,7 +97,20 @@ async function detectFrame() {
     detections.forEach(detection => {
       const { x, y, width, height } = detection.detection.box;
       const inputDescriptor = detection.descriptor;
-
+      const expressions = detection.expressions; // ★表情スコアを取得
+      // 「じぇみってる」判定（例：笑顔と驚きがともに高い、または笑顔が突き抜けている時）
+      if ((expressions.happy > 0.4 && expressions.surprised > 0.3) || expressions.happy > 0.95) {
+        expressionText = "✨ じぇみってる！";
+      } else if (expressions.happy > 0.6) {
+        expressionText = "😊 笑ってる";
+      } else if (expressions.angry > 0.5) {
+        expressionText = "😡 怒ってる";
+      } else if (expressions.sad > 0.5) {
+        expressionText = "😭 泣いてる/悲しい";
+      } else if (expressions.surprised > 0.5) {
+        expressionText = "😲 驚いてる";
+      }
+          
       let bestMatch = { label: "人", distance: 1.0 };
 
       // 照合処理
@@ -117,15 +131,17 @@ async function detectFrame() {
         detectedNames.push(`${bestMatch.label}来たやん！`);
       }
 
+      let baseText = bestMatch.label === "人" ? "人" : `${bestMatch.label}来たやん！`;
+      const displayText = expressionText ? `${baseText} (${expressionText})` : baseText;
+    
       // 枠線の描画（赤：未登録 / 緑：登録済み）
       ctx.strokeStyle = bestMatch.label === "人" ? "#ff0055" : "#00ffcc";
       ctx.lineWidth = 4;
       ctx.strokeRect(x, y, width, height);
-
-      // 枠の上の文字描画
+    
+      // 文字描画（表情付き）
       ctx.fillStyle = ctx.strokeStyle;
-      ctx.font = "bold 22px sans-serif";
-      const displayText = bestMatch.label === "人" ? "人" : `${bestMatch.label}来たやん！`;
+      ctx.font = "bold 20px sans-serif";
       ctx.fillText(displayText, x, y > 30 ? y - 10 : y + 30);
     });
 
@@ -199,7 +215,8 @@ async function main() {
     await Promise.all([
       faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
     ]);
 
     await loadRegisteredData();
