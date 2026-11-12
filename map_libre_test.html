@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>MapLibre GL JS サンプル</title>
+    <!-- MapLibre GL JS の CSS と JS をCDNから読み込み -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+
+  <!-- 地図を表示するコンテナ -->
+  <div id="map"></div>
+
+  <script>
+    // 地図インスタンスの初期化
+    const map = new maplibregl.Map({
+      container: 'map', // divのid
+      style: 'https://demotiles.maplibre.org/style.json',
+      center: [136.9066, 35.1815],
+      zoom: 11
+    });
+
+    map.on('load', () => {
+      map.loadImage('./img/icon.png', (error, image) => {
+        if (error) throw error;
+
+        // ここで受け取った image を登録する
+        map.addImage('aq_icon', image);
+
+        // ここから下に addSource と addLayer を書く
+        map.addSource('my-geojson-source', {
+          type: 'geojson',
+          data: './AQ-Point2.geojson',
+          cluster: true,
+          clusterMaxZoom: 14,
+          clusterRadius: 15,
+          buffer: 64,
+          tolerance: 0.5
+        });
+
+        map.addLayer({
+          id: 'my-symbol-layer',
+          type: 'symbol',
+          source: 'my-geojson-source',
+          layout: {
+            'icon-image': 'aq_icon',
+            'icon-size': [
+              'interpolate',
+               ['linear'],
+              ['get','Magnitude'],
+              3, 0.2,
+              9, 2.0
+            ]
+          }
+        });
+      });
+    });
+
+
+
+
+  </script>
+
+</body>
+</html>
