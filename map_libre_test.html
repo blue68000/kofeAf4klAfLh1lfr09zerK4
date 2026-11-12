@@ -26,16 +26,16 @@
     });
 
     map.on('load', () => {
-      map.loadImage('./img/icon.png', (error, image) => {
+      map.loadImage('./img/point.png', (error, image) => {
         if (error) throw error;
 
         // ここで受け取った image を登録する
-        map.addImage('aq_icon', image);
+        map.addImage('aq_icon', image, { sdf: true });
 
         // ここから下に addSource と addLayer を書く
         map.addSource('my-geojson-source', {
           type: 'geojson',
-          data: './AQ-Point2.geojson',
+          data: './src/AQ-Point.geojson',
           cluster: true,
           clusterMaxZoom: 14,
           clusterRadius: 15,
